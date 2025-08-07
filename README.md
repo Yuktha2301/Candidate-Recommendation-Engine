@@ -21,11 +21,11 @@ An intelligent web application that uses Google's Gemini AI to match job descrip
 - **AI Model**: Google Gemini 2.0 Flash
 - **File Processing**: PyPDF2, docx2txt
 - **Data Processing**: Pandas, NumPy
-- **Environment**: Python 3.8+
+- **Environment**: Python 3.11 (optimized for Streamlit Cloud)
 
 ## 📋 Requirements
 
-- Python 3.8 or higher
+- Python 3.11 (recommended for Streamlit Cloud)
 - Google API Key for Gemini AI
 - Internet connection for AI model access
 
@@ -103,6 +103,7 @@ candidate-recommendation-engine/
 ├── app.py                 # Main application
 ├── streamlit_app.py       # Streamlit Cloud entry point
 ├── requirements.txt       # Python dependencies
+├── runtime.txt            # Python version specification
 ├── README.md             # Project documentation
 ├── .gitignore            # Git ignore rules
 └── .streamlit/
@@ -183,8 +184,13 @@ candidate-recommendation-engine/
 
 1. **Build Fails**
    - Check `requirements.txt` has all dependencies
-   - Verify Python version compatibility
+   - Verify Python version compatibility (Python 3.11 recommended)
    - Check logs for specific errors
+   - **Python 3.13 Compatibility**: If you see `distutils` errors, ensure you're using Python 3.11
+
+2. **File Watcher Errors**
+   - If you see `inotify instance limit reached` errors, the app is configured to disable file watching
+   - This is normal in cloud environments and doesn't affect functionality
 
 2. **API Key Issues**
    - Verify API key is correct

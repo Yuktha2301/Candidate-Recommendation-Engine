@@ -17,6 +17,10 @@ load_dotenv()
 # Enable debug mode for troubleshooting
 DEBUG_MODE = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
+# Runtime configuration for production deployment
+if os.getenv('STREAMLIT_SERVER_RUN_ON_SAVE', 'false').lower() == 'false':
+    st.set_option('server.fileWatcherType', 'none')
+
 # Configure page
 st.set_page_config(
     page_title="Candidate Recommendation Engine",
@@ -27,11 +31,11 @@ st.set_page_config(
 
 # Initialize session state
 if 'candidates' not in st.session_state:
-    st.session_state.candidates = []
+    st.session_state['candidates'] = []
 if 'job_description' not in st.session_state:
-    st.session_state.job_description = ""
+    st.session_state['job_description'] = ""
 if 'gemini_model' not in st.session_state:
-    st.session_state.gemini_model = None
+    st.session_state['gemini_model'] = None
 
 def setup_gemini():
     """Setup Google Generative AI with Gemini model."""
@@ -211,11 +215,11 @@ def main():
     st.markdown("---")
     
     # Load the Gemini model
-    if st.session_state.gemini_model is None:
+    if 'gemini_model' not in st.session_state or st.session_state.get('gemini_model') is None:
         with st.spinner("Loading Gemini AI model..."):
-            st.session_state.gemini_model = setup_gemini()
+            st.session_state['gemini_model'] = setup_gemini()
     
-    if st.session_state.gemini_model is None:
+    if st.session_state.get('gemini_model') is None:
         st.error("Failed to load Gemini model. Please check your API key.")
         return
     
@@ -313,7 +317,7 @@ def main():
                         similarity_score = get_similarity_score_with_gemini(
                             job_description, 
                             candidate['content'], 
-                            st.session_state.gemini_model
+                            st.session_state.get('gemini_model')
                         )
                         
                         # Generate AI summary
@@ -321,7 +325,7 @@ def main():
                             job_description,
                             candidate['content'],
                             similarity_score,
-                            st.session_state.gemini_model
+                            st.session_state.get('gemini_model')
                         )
                         
                         results.append({
@@ -374,8 +378,8 @@ def main():
                             st.text(preview)
                 
                 # Store results in session state
-                st.session_state.candidates = results
-                st.session_state.job_description = job_description
+                st.session_state['candidates'] = results
+                st.session_state['job_description'] = job_description
                 
                 st.success(f"✅ Processed {len(candidates)} candidates successfully!")
         
@@ -383,9 +387,9 @@ def main():
             st.error("Please enter a job description to proceed.")
         
         # Display previous results if available
-        elif st.session_state.candidates:
+        elif st.session_state.get('candidates'):
             st.subheader("📋 Previous Results")
-            for i, result in enumerate(st.session_state.candidates[:5]):
+            for i, result in enumerate(st.session_state.get('candidates', [])[:5]):
                 st.markdown(f"**{i+1}. {result['Name']}** - {result['Similarity Score']}")
     
     with col2:
@@ -406,9 +410,9 @@ def main():
         - ✅ Real-time processing
         """)
         
-        if st.session_state.candidates:
+        if st.session_state.get('candidates'):
             st.header("📈 Statistics")
-            scores = [r['Raw Score'] for r in st.session_state.candidates]
+            scores = [r['Raw Score'] for r in st.session_state.get('candidates', [])]
             if scores:
                 st.metric("Average Score", f"{np.mean(scores):.1f}%")
                 st.metric("Highest Score", f"{max(scores):.1f}%")

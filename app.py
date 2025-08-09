@@ -18,13 +18,11 @@ load_dotenv()
 DEBUG_MODE = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
 # Runtime configuration for production deployment
-if os.getenv('STREAMLIT_SERVER_RUN_ON_SAVE', 'false').lower() == 'false':
-    st.set_option('server.fileWatcherType', 'none')
+# Note: server.fileWatcherType should be set via command line or config.toml if needed
 
 # Configure page
 st.set_page_config(
     page_title="Candidate Recommendation Engine",
-    page_icon="👥",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -211,8 +209,35 @@ def generate_ai_summary_with_gemini(job_description: str, resume_text: str, simi
             raise Exception(f"API_ERROR: {error_msg}")
 
 def main():
-    st.title("🎯 Candidate Recommendation Engine")
-    st.markdown("---")
+    # Custom CSS to remove padding and make full width
+    st.markdown("""
+    <style>
+    /* Remove all top padding and margins */
+    .main .block-container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+        max-width: none;
+    }
+    .stColumn {
+        padding: 0 0.5rem;
+    }
+    /* Remove default top margin from title */
+    h1 {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }
+    /* Remove top margin from the entire app */
+    .stApp > header {
+        display: none;
+    }
+    .stApp {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     # Load the Gemini model
     if 'gemini_model' not in st.session_state or st.session_state.get('gemini_model') is None:
@@ -223,207 +248,216 @@ def main():
         st.error("Failed to load Gemini model. Please check your API key.")
         return
     
-    # Sidebar for inputs
-    with st.sidebar:
-        st.header("📝 Input Section")
-        
-        # Job Description Input
-        st.subheader("Job Description")
-        job_description = st.text_area(
-            "Enter the job description:",
-            height=200,
-            placeholder="Paste the job description here...",
-            key="job_desc_input"
-        )
-        
-        # Resume Input Section
-        st.subheader("📄 Candidate Resumes")
-        
-        # File upload
+    # Title at the very top
+    st.title("Candidate Recommendation Engine")
+    st.markdown("**Developed by Yuktha Bhargavi** | [LinkedIn](https://www.linkedin.com/in/yuktha-bhargavi-b8910a1b4/) | [Github](https://github.com/Yuktha2301)")
+    
+    # Horizontal info sections below the title
+    col_info1, col_info2, col_info3, col_stats = st.columns([3, 3, 3, 2])
+    
+    with col_info1:
+        st.markdown("**Instructions**")
+        st.markdown("• Enter Job Description below<br>• Upload Resume Files (PDF/DOCX) or add text<br>• Click 'Find Best Candidates' to process<br>• View Results with similarity scores and AI analysis<br>• Only 25 resumes can be analysed in a day (Gemini API free tier restrictions)", unsafe_allow_html=True)
+    
+    with col_info2:
+        st.markdown("**Features**")
+        st.markdown("• Gemini AI-powered similarity matching<br>• Multiple file format support<br>• Automatic AI-generated summaries<br>• Real-time processing", unsafe_allow_html=True)
+    
+    with col_info3:
+        st.markdown("**Setup**")
+        st.markdown("**Required:** Google API Key<br>• Get from [Google AI Studio](https://makersuite.google.com/app/apikey)<br>• Set as environment variable: `GOOGLE_API_KEY`", unsafe_allow_html=True)
+    
+    with col_stats:
+        if st.session_state.get('candidates'):
+            st.markdown("**Statistics**")
+            scores = [r['Raw Score'] for r in st.session_state.get('candidates', [])]
+            if scores:
+                st.metric("Avg", f"{np.mean(scores):.0f}%")
+                st.metric("Max", f"{max(scores):.0f}%")
+                st.metric("Total", len(scores))
+    
+    st.markdown("---")
+    
+    # Input Section - Horizontal layout
+    st.header("Input Section")
+    
+    # Job Description Input - Full width
+    job_description = st.text_area(
+        "Job Description:",
+        height=150,
+        placeholder="Paste the job description here...",
+        key="job_description_main"
+    )
+    
+    # Resume Input Section - Horizontal layout
+    col_upload, col_text = st.columns([1, 1])
+    
+    with col_upload:
+        st.subheader("Upload Resume Files")
         uploaded_files = st.file_uploader(
             "Upload resume files (PDF, DOCX):",
             type=['pdf', 'docx'],
             accept_multiple_files=True,
-            help="Upload multiple resume files"
+            help="Upload multiple resume files",
+            key="resume_file_uploader"
         )
+    
+    with col_text:
+        st.subheader("Add Resumes as Text")
+        num_text_inputs = st.number_input("Number of text resumes to add:", min_value=0, max_value=10, value=0, key="num_text_resumes")
+    
+    # Text input areas for resumes - wrap across screen
+    if num_text_inputs > 0:
+        st.subheader("Text Resume Input:")
         
-        # Text input for resumes
-        st.subheader("Or add resumes as text:")
-        num_text_inputs = st.number_input("Number of text resumes to add:", min_value=1, max_value=10, value=1)
-        
+        # Create columns for text inputs (2 per row)
         text_resumes = []
-        for i in range(num_text_inputs):
-            resume_text = st.text_area(
-                f"Resume {i+1} (Text):",
-                height=100,
-                placeholder=f"Paste candidate {i+1} resume here...",
-                key=f"resume_text_{i}"
-            )
-            if resume_text.strip():
-                text_resumes.append({
-                    'name': f"Candidate {i+1}",
-                    'content': resume_text.strip()
-                })
-        
-        # Process button
-        process_button = st.button("🚀 Find Best Candidates", type="primary")
-    
-    # Main content area
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.header("📊 Results")
-        
-        if process_button and job_description.strip():
-            with st.spinner("Processing candidates with Gemini AI..."):
-                # Process uploaded files
-                candidates = []
-                
-                # Process uploaded files
-                for i, uploaded_file in enumerate(uploaded_files):
-                    file_content = ""
-                    if uploaded_file.type == "application/pdf":
-                        file_content = extract_text_from_pdf(uploaded_file)
-                    elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                        file_content = extract_text_from_docx(uploaded_file)
-                    
-                    if file_content:
-                        candidates.append({
-                            'name': f"File {i+1}: {uploaded_file.name}",
-                            'content': file_content
-                        })
-                
-                # Add text resumes
-                candidates.extend(text_resumes)
-                
-                if not candidates:
-                    st.warning("Please upload files or add text resumes to process.")
-                    return
-                
-                # Process candidates with Gemini
-                st.info(f"Processing {len(candidates)} candidates with Gemini AI...")
-                
-                results = []
-                progress_bar = st.progress(0)
-                api_limit_reached = False
-                
-                for i, candidate in enumerate(candidates):
-                    # Update progress
-                    progress = (i + 1) / len(candidates)
-                    progress_bar.progress(progress)
-                    
-                    try:
-                        # Get similarity score
-                        similarity_score = get_similarity_score_with_gemini(
-                            job_description, 
-                            candidate['content'], 
-                            st.session_state.get('gemini_model')
+        cols_per_row = 2
+        for row in range((num_text_inputs + cols_per_row - 1) // cols_per_row):
+            cols = st.columns(cols_per_row)
+            for col_idx in range(cols_per_row):
+                i = row * cols_per_row + col_idx
+                if i < num_text_inputs:
+                    with cols[col_idx]:
+                        resume_text = st.text_area(
+                            f"Resume {i+1}:",
+                            height=120,
+                            placeholder=f"Paste candidate {i+1} resume here...",
+                            key=f"resume_text_{i}"
                         )
-                        
-                        # Generate AI summary
-                        ai_summary = generate_ai_summary_with_gemini(
-                            job_description,
-                            candidate['content'],
-                            similarity_score,
-                            st.session_state.get('gemini_model')
-                        )
-                        
-                        results.append({
-                            'Name': candidate['name'],
-                            'Similarity Score': f"{similarity_score:.1f}%",
-                            'Raw Score': similarity_score,
-                            'Content': candidate['content'],
-                            'AI Summary': ai_summary
-                        })
-                        
-                    except Exception as e:
-                        if "API_RATE_LIMIT_EXCEEDED" in str(e) or "API_QUOTA_EXCEEDED" in str(e):
-                            api_limit_reached = True
-                            st.warning(f"⏸️ Processing stopped at candidate {i+1} due to API rate limit.")
-                            break
-                        else:
-                            st.error(f"Error processing candidate {i+1}: {str(e)}")
-                            continue
-                
-                if api_limit_reached:
-                    st.error("🛑 Processing stopped due to API rate limit. Please try again after the quota resets.")
-                    if results:
-                        st.info(f"✅ Successfully processed {len(results)} candidates before hitting the limit.")
-                elif not results:
-                    st.error("❌ No candidates were processed successfully.")
-                    return
-                else:
-                    st.success(f"✅ Processed {len(results)} candidates successfully!")
-                
-                # Sort by similarity score
-                results.sort(key=lambda x: x['Raw Score'], reverse=True)
-                
-                # Display top candidates
-                st.subheader("🏆 Top Candidates")
-                
-                for i, result in enumerate(results[:10]):  # Show top 10
-                    with st.expander(f"#{i+1} - {result['Name']} ({result['Similarity Score']})"):
-                        col_a, col_b = st.columns([1, 1])
-                        
-                        with col_a:
-                            st.markdown(f"**Similarity Score:** {result['Similarity Score']}")
-                            
-                            # Display AI summary automatically
-                            st.markdown("**AI Analysis:**")
-                            st.info(result['AI Summary'])
-                        
-                        with col_b:
-                            st.markdown("**Resume Preview:**")
-                            preview = result['Content'][:300] + "..." if len(result['Content']) > 300 else result['Content']
-                            st.text(preview)
-                
-                # Store results in session state
-                st.session_state['candidates'] = results
-                st.session_state['job_description'] = job_description
-                
-                st.success(f"✅ Processed {len(candidates)} candidates successfully!")
-        
-        elif process_button and not job_description.strip():
-            st.error("Please enter a job description to proceed.")
-        
-        # Display previous results if available
-        elif st.session_state.get('candidates'):
-            st.subheader("📋 Previous Results")
-            for i, result in enumerate(st.session_state.get('candidates', [])[:5]):
-                st.markdown(f"**{i+1}. {result['Name']}** - {result['Similarity Score']}")
+                        if resume_text.strip():
+                            text_resumes.append({
+                                'name': f"Candidate {i+1}",
+                                'content': resume_text.strip()
+                            })
+    else:
+        text_resumes = []
     
-    with col2:
-        st.header("ℹ️ Instructions")
-        st.markdown("""
-        1. **Enter Job Description** in the sidebar
-        2. **Upload Resume Files** (PDF/DOCX) or add text
-        3. **Click "Find Best Candidates"** to process
-        4. **View Results** with similarity scores and AI analysis
-        """)
-        
-        st.header("🔧 Features")
-        st.markdown("""
-        - ✅ Gemini AI-powered similarity matching
-        - ✅ Multiple file format support
-        - ✅ Automatic AI-generated summaries
-        - ✅ Top 10 candidate ranking
-        - ✅ Real-time processing
-        """)
-        
-        if st.session_state.get('candidates'):
-            st.header("📈 Statistics")
-            scores = [r['Raw Score'] for r in st.session_state.get('candidates', [])]
-            if scores:
-                st.metric("Average Score", f"{np.mean(scores):.1f}%")
-                st.metric("Highest Score", f"{max(scores):.1f}%")
-                st.metric("Candidates Processed", len(scores))
-        
-        st.header("🔑 Setup")
-        st.markdown("""
-        **Required:** Google API Key
-        - Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
-        - Set as environment variable: `GOOGLE_API_KEY`
-        """)
+    # Process button - centered
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+    with col_btn2:
+        process_button = st.button("Find Best Candidates", type="primary", use_container_width=True, key="process_candidates_btn")
+    
+    st.markdown("---")
+    
+    # Results Section
+    st.header("Results")
+    
+    if process_button and job_description.strip():
+        with st.spinner("Processing candidates with Gemini AI..."):
+            # Process uploaded files
+            candidates = []
+            
+            # Process uploaded files
+            for i, uploaded_file in enumerate(uploaded_files):
+                file_content = ""
+                if uploaded_file.type == "application/pdf":
+                    file_content = extract_text_from_pdf(uploaded_file)
+                elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    file_content = extract_text_from_docx(uploaded_file)
+                
+                if file_content:
+                    candidates.append({
+                        'name': f"File {i+1}: {uploaded_file.name}",
+                        'content': file_content
+                    })
+            
+            # Add text resumes
+            candidates.extend(text_resumes)
+            
+            if not candidates:
+                st.warning("Please upload files or add text resumes to process.")
+                return
+            
+            # Process candidates with Gemini
+            st.info(f"Processing {len(candidates)} candidates with Gemini AI...")
+            
+            results = []
+            progress_bar = st.progress(0)
+            api_limit_reached = False
+            
+            for i, candidate in enumerate(candidates):
+                # Update progress
+                progress = (i + 1) / len(candidates)
+                progress_bar.progress(progress)
+                
+                try:
+                    # Get similarity score
+                    similarity_score = get_similarity_score_with_gemini(
+                        job_description, 
+                        candidate['content'], 
+                        st.session_state.get('gemini_model')
+                    )
+                    
+                    # Generate AI summary
+                    ai_summary = generate_ai_summary_with_gemini(
+                        job_description,
+                        candidate['content'],
+                        similarity_score,
+                        st.session_state.get('gemini_model')
+                    )
+                    
+                    results.append({
+                        'Name': candidate['name'],
+                        'Similarity Score': f"{similarity_score:.1f}%",
+                        'Raw Score': similarity_score,
+                        'Content': candidate['content'],
+                        'AI Summary': ai_summary
+                    })
+                    
+                except Exception as e:
+                    if "API_RATE_LIMIT_EXCEEDED" in str(e) or "API_QUOTA_EXCEEDED" in str(e):
+                        api_limit_reached = True
+                        st.warning(f"⏸️ Processing stopped at candidate {i+1} due to API rate limit.")
+                        break
+                    else:
+                        st.error(f"Error processing candidate {i+1}: {str(e)}")
+                        continue
+            
+            if api_limit_reached:
+                st.error("Processing stopped due to API rate limit. Please try again after the quota resets.")
+                if results:
+                    st.info(f"Successfully processed {len(results)} candidates before hitting the limit.")
+            elif not results:
+                st.error("No candidates were processed successfully.")
+                return
+            else:
+                st.success(f"Processed {len(results)} candidates successfully!")
+            
+            # Sort by similarity score
+            results.sort(key=lambda x: x['Raw Score'], reverse=True)
+            
+            # Display top candidates
+            st.subheader("**Top Candidates**")
+            
+            for i, result in enumerate(results[:10]):  # Show top 10
+                with st.expander(f"#{i+1} - {result['Name']} ({result['Similarity Score']})"):
+                    col_a, col_b = st.columns([1, 1])
+                    
+                    with col_a:
+                        st.markdown(f"**Similarity Score:** {result['Similarity Score']}")
+                        
+                        # Display AI summary automatically
+                        st.markdown("**AI Analysis:**")
+                        st.info(result['AI Summary'])
+                    
+                    with col_b:
+                        st.markdown("**Resume Preview:**")
+                        preview = result['Content'][:300] + "..." if len(result['Content']) > 300 else result['Content']
+                        st.text(preview)
+            
+            # Store results in session state
+            st.session_state['candidates'] = results
+            st.session_state['job_description'] = job_description
+    
+    elif process_button and not job_description.strip():
+        st.error("Please enter a job description to proceed.")
+    
+    # Display previous results if available
+    elif st.session_state.get('candidates'):
+        st.subheader("Previous Results")
+        for i, result in enumerate(st.session_state.get('candidates', [])[:5]):
+            st.markdown(f"**{i+1}. {result['Name']}** - {result['Similarity Score']}")
 
 if __name__ == "__main__":
     main() 
